@@ -28,6 +28,7 @@ public class UserController {
 	public ResponseEntity<Page<UserDTO>> findAll(Pageable pageable) {
 		Page<UserDTO> list = service.findAllPaged(pageable);
 		return ResponseEntity.ok().body(list);
+
 	}
 
 	@PreAuthorize("hasAnyRole('ROLE_ADMIN')")
