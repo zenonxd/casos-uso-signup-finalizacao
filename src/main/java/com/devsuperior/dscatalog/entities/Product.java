@@ -55,6 +55,16 @@ public class Product {
 		this.date = date;
 	}
 
+	public Product(Long id, String name, String description, Double price, String imgUrl, Instant date, Set<Category> categories) {
+		this.id = id;
+		this.name = name;
+		this.description = description;
+		this.price = price;
+		this.imgUrl = imgUrl;
+		this.date = date;
+		this.categories = categories;
+	}
+
 	public Long getId() {
 		return id;
 	}

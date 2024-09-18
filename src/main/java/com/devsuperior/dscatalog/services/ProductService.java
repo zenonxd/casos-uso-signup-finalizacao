@@ -1,10 +1,14 @@
 package com.devsuperior.dscatalog.services;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
+import com.devsuperior.dscatalog.projections.ProductProjection;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -31,9 +35,32 @@ public class ProductService {
 	private CategoryRepository categoryRepository;
 	
 	@Transactional(readOnly = true)
-	public Page<ProductDTO> findAllPaged(Pageable pageable) {
-		Page<Product> list = repository.findAll(pageable);
-		return list.map(x -> new ProductDTO(x));
+	public Page<ProductDTO> findAllPaged(String name, String categoryId, Pageable pageable) {
+		//instanciando uma lista vazia de categoryId
+		List<Long> categoryIds = Arrays.asList();
+		//caso essa lista não tenha "0" (aquele parâmetro que passamos no controller),
+		//iremos separar os números, e convertê-los para uma lista de Long
+		if (!"0".equals(categoryIds)) {
+			categoryIds = Arrays.asList(categoryId.split(",")).stream().map(Long::parseLong).toList();
+		}
+
+		//instanciaremos uma Page do tipo Projection, realizando a primeira consulta feita (em sql)
+		Page<ProductProjection> page = repository.searchProducts(categoryIds, name, pageable);
+		//pega a page acima, e mapeia ela para uma Lista do tipo Long (para inserirmos no segundo método do repository
+		//(que fizemos em JPQL)
+		List<Long> productIds = page.map(x -> x.getId()).toList();
+
+        /* agora, criamos uma lista do tipo Product e utilizamos o método criado do repository (jpql)
+        * visto que ele recebe como parâmetro uma lista de Long*/
+		List<Product> entity = repository.searchProductWithCategories(productIds);
+		//reconvertendo a lista do tipo Produto para uma do tipo DTO
+		List<ProductDTO> dtos = entity.stream().map(x -> new ProductDTO(x, x.getCategories())).toList();
+
+		//Agora, como não é para retornar uma lista e sim Page, instanciaremos uma passando: lista de dto, o get
+		//pageable e o totalElements.
+		Page<ProductDTO> pageDTO = new PageImpl<>(dtos, page.getPageable(), page.getTotalElements());
+
+		return pageDTO;
 	}
 
 	@Transactional(readOnly = true)

@@ -60,11 +60,7 @@ Usa o count no Obj e não usa o Fetch.
 
 ![img_3.png](img_3.png)
 
-1. Para o sistema informar id e nome de TODAS as categoria de produto, é só mudar o endpoint. Ao invés de retornar paged
-no findAllPaged, irá retornar uma lista (Isso nas classes de Category).
-
-
-2. Uma requisição exemplo (o que usuário irá informar):``/products?page=0&size=12&name=ma&categoryId=1,3``
+Uma requisição exemplo (o que usuário irá informar):``/products?page=0&size=12&name=ma&categoryId=1,3``
 
 Faremos agora a consulta no Repository para que ele consiga encontrar as categorias e filtrar por nome. A ideia dessa
 consulta é encontrar os IDS dos Produtos que vão fazer parte da página.
@@ -77,7 +73,7 @@ Consulta feita no H2:
 ![img_4.png](img_4.png)
 
 Agora iremos no Repository (Products), e criar o método searchProducts. Seus parâmetros serão exatamente o que está na
-requisição acima.
+requisição (url) acima.
 
 Além disso, retornará um Page do tipo ProductProjection.
 
@@ -97,10 +93,10 @@ Mas o controle que temos da consulta é 100% nosso (usando SQL raíz).
 
 Como nesse caso temos DISTINCT, JOIN, condições de WHERE, usaremos a raíz.
 
-Consulta de referência:
+Consulta para referência:
 -
 
-A unica diferença, é que iremos renomear algumas coisas, passando os parâmetros.
+A única diferença, é que iremos renomear algumas coisas, passando os parâmetros.
 
 Exemplo: ao invés de usar (1,3) para referenciar a ID das categorias, usaremos IN :categoryIds < parâmetro.
 
@@ -109,7 +105,7 @@ Outra coisa, como temos um pageable, precisamos usar o countQuery.
 Como já temos o DISTINCT, no início faremos o SELECT COUNT(*) FROM (). E no final, como é uma subconsulta, usaremos o
 AS tb_result.
 
-```
+```java
 @Query(nativeQuery = true, value = """
 	SELECT DISTINCT tb_product.id, tb_product.name
 	FROM tb_product
@@ -134,6 +130,96 @@ Page<ProductProjection> searchProducts(List<Long> categoryIds, String name, Page
 List<Product> searchProductsWithCategories(List<Long> productIds);
 ```
 
+## Capturando parâmetros em requisição
 
+Como podemos ver na requisição ali em cima, nós passamos alguns parâmetros (como name e categoryId). Como capturá-los?
+
+Bom, dentro do método do Controller, iremos usar o @RequestParam com o seu valor.
+
+## Repository
+
+```java
+@Repository
+public interface ProductRepository extends JpaRepository<Product, Long> {
+
+    @Query(nativeQuery = true, value = """
+	SELECT DISTINCT tb_product.id, tb_product.name
+	FROM tb_product
+	INNER JOIN tb_product_category ON tb_product_category.product_id = tb_product.id
+	WHERE (:categoryIds IS NULL OR tb_product_category.category_id IN :categoryIds)
+	AND (LOWER(tb_product.name) LIKE LOWER(CONCAT('%',:name,'%')))
+	ORDER BY tb_product.name
+	""")
+    Page<ProductProjection> searchProducts(List<Long> categoryIds, String name, Pageable pageable);
+
+    @Query("SELECT obj FROM Product obj JOIN FETCH obj.categories "
+    + "WHERE obj.id IN :productIds ORDER BY obj.name")
+    List<Product> searchProductWithCategories(List<Long> productIds);
+}
+```
+
+
+## Controller
+
+```java
+@GetMapping
+public ResponseEntity<Page<ProductDTO>> findAll(
+        @RequestParam(value = "name", defaultValue = "") String name,
+        @RequestParam(value = "categoryId", defaultValue = "0") String categoryId,
+        Pageable pageable) {
+    Page<ProductDTO> list = service.findAllPaged(name, categoryId, pageable);
+    return ResponseEntity.ok().body(list);
+}
+```
+
+## Service
+
+```java
+@Transactional(readOnly = true)
+public Page<ProductDTO> findAllPaged(String name, String categoryId, Pageable pageable) {
+    //instanciando uma lista vazia de categoryId
+    List<Long> categoryIds = Arrays.asList();
+    //caso essa lista não tenha "0" (aquele parâmetro que passamos no controller),
+    //iremos separar os números, e convertê-los para uma lista de Long
+    if (!"0".equals(categoryIds)) {
+        categoryIds = Arrays.asList(categoryId.split(",")).stream().map(Long::parseLong).toList();
+    }
+
+	//instanciaremos uma Page do tipo Projection, realizando a primeira consulta feita (em sql)
+	Page<ProductProjection> page = repository.searchProducts(categoryIds, name, pageable);
+	//pega a page acima, e mapeia ela para uma Lista do tipo Long (para inserirmos no segundo método do repository
+	//(que fizemos em JPQL)
+	List<Long> productIds = page.map(x -> x.getId()).toList();
+
+    /* agora, criamos uma lista do tipo Product e utilizamos o método criado do repository (jpql)
+    * visto que ele recebe como parâmetro uma lista de Long*/
+	List<Product> entity = repository.searchProductWithCategories(productIds);
+	//reconvertendo a lista do tipo Produto para uma do tipo DTO
+	List<ProductDTO> dtos = entity.stream().map(x -> new ProductDTO(x, x.getCategories())).toList();
+
+	//Agora, como não é para retornar uma lista e sim Page, instanciaremos uma passando: lista de dto, o get
+	//pageable e o totalElements.
+	Page<ProductDTO> pageDTO = new PageImpl<>(dtos, page.getPageable(), page.getTotalElements());
+
+	return pageDTO;
+}
+```
+
+## Quick fix: usando Sort do Pageable
+
+Se você reparar nos métodos do Repository, estamos utilizando ORDER BY ao invés do Sort do pageable, isso não é o ideal.
+
+1. Colocar alias de resultado em ambas as consultas SQL e remover os Order BY.
+
+![img_7.png](img_7.png)
+
+2. Resolver o problema do resultado desordenado 
+   - Criar método estático auxiliar para gerar nova lista de entidades ordenada
+
+
+3. Deixar a solução genérica (OO avançado)
+   - Criar interface IdProjection<E>
+   - Tipos Product e ProductProjection devem implementar IdProjection<E>
+   - Refatorar o método auxiliar para que fique genérico
 
 
