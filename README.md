@@ -209,17 +209,121 @@ public Page<ProductDTO> findAllPaged(String name, String categoryId, Pageable pa
 
 Se você reparar nos métodos do Repository, estamos utilizando ORDER BY ao invés do Sort do pageable, isso não é o ideal.
 
+Iremos arrumar isso em três passos:
+
 1. Colocar alias de resultado em ambas as consultas SQL e remover os Order BY.
 
 ![img_7.png](img_7.png)
 
+Com isso, ao realizarmos a requisição no Postman com sort por name, ele irá ordenar somente pelas páginas. Isso acontece
+porque a nossa segunda consulta do repository, não tem "obrigação" de trazer os itens ordenados.
+
+Ou seja, aquela list ali em cima de ProductProjection page, está ordenada. A de entities, não.
+
+![img_8.png](img_8.png)
+
+Lembrando, só podemos ordenar no momento por nome ou id, lembra da projection criada? (retorno da consulta SQL no h2)
+
+![img_9.png](img_9.png)
+
+Se quiséssemos ordenar por preço, por exemplo, teria que ter um getPrice e mudar a consulta SQL.
+
+Ok! Vamos resolver o problema do resultado desordenado nas páginas ➡️
+<hr>
+
 2. Resolver o problema do resultado desordenado 
    - Criar método estático auxiliar para gerar nova lista de entidades ordenada
 
+Como sabemos que o "page" está ordenado, a ideia é criar um método para fazer o seguinte:
+
+Iremos gerar uma nova lista, usando os objetos da lista não ordenada (entities), obedecendo à ordenação da ordenada
+(page).
+
+Criar um pacote util e a classe "utils". 
+
+```java
+public class Utils {
+
+    //pegaremos a ordenação de projection (paginação) e montar uma nova lista de Product
+    //usando como a base a lista desordenada (entity)
+    public static List<Product> replace(List<ProductProjection> ordered, List<Product> unordered) {
+        
+        //Usar Map, pois é mais fácil para acessar os itens.
+        //Long (para o id), guardaremos o product pelo ID.
+        Map<Long, Product> map = new HashMap<>();
+
+        //preenchendo o Map com os elementos da lista desordenada
+        for (Product p : unordered) {
+            map.put(p.getId(), p);
+        }
+
+        //criando lista de Produtos ordenada
+        List<Product> result = new ArrayList<Product>();
+
+        //agora, para cada Projection da ordered (lá em cima), iremos adicionar na result
+        //o produto que corresponde a Projection
+        for (ProductProjection p : ordered) {
+            //irá para a lista, o produto que o id estiver no map, que tenha o ID do
+            //objeto dentro da lista ordered
+            result.add(map.get(p.getId()));
+        }
+
+        return result;
+    }
+}
+```
+
+![img_10.png](img_10.png)
+
+Ok, perfeito! A partir disso, poderemos fazer a requisição e virá em ordem alfabética ou por ID.
+
+Só tem um porém. Fizemos a resolução se baseando num tipo de ProductProjection. E se fosse outro tipo? UserProjection e
+User? Não tem porque reescrever o código. Deixaremos no próximo passo o método mais genérico ➡️
+
+<hr>
 
 3. Deixar a solução genérica (OO avançado)
    - Criar interface IdProjection<E>
    - Tipos Product e ProductProjection devem implementar IdProjection<E>
    - Refatorar o método auxiliar para que fique genérico
 
+Bom, os dois parâmetros precisam ter ID, tanto a Projection quanto a Entidade:
 
+![img_11.png](img_11.png)
+
+Para deixar isso genérico, criaremos uma interface que tenha o método getId.
+
+No pacote interface criar: IdProjection
+
+![img_12.png](img_12.png)
+
+Agora, o nosso ProductProjection não terá mais um getId(). Ele irá herdar a interface acima.
+
+![img_13.png](img_13.png)
+
+O Product é a mesma coisa, também irá herdar a interface (colocar @Override no getId para o compilador).
+
+![img_14.png](img_14.png)
+
+Voltando ao método replace, deixando ele genérico (usando tipo curinga).
+
+Na nomeação do método, passaremos o tipo genérico <ID>. E não será mais uma lista de Product, e sim uma lista de
+IdProjection<ID>. < Só isso, não iria funcionar, para que essa lista aceite como subtipo, uma lista de Produto,
+iremos utilizar o tipo curinga (? extends).
+
+O tipo curinga em suma diz: será uma lista de qualquer tipo (ou subtipo) de IdProjection. Como o Product implementa esse
+IdProjection, ele é um subtipo de IdProjection (Long).
+
+Ou seja, uma lista de Product, casa com uma Lista de IdProjection.
+
+![img_15.png](img_15.png)
+
+Copiaremos a mesma nomenclatura para os parâmetros:
+
+Método alterado:
+
+![img_16.png](img_16.png)
+
+Service alterado (um simples casting):
+
+![img_17.png](img_17.png)

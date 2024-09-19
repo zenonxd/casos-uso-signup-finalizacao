@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 
 import com.devsuperior.dscatalog.projections.ProductProjection;
+import com.devsuperior.dscatalog.util.Utils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -50,9 +51,15 @@ public class ProductService {
 		//(que fizemos em JPQL)
 		List<Long> productIds = page.map(x -> x.getId()).toList();
 
-        /* agora, criamos uma lista do tipo Product e utilizamos o método criado do repository (jpql)
-        * visto que ele recebe como parâmetro uma lista de Long*/
-		List<Product> entity = repository.searchProductWithCategories(productIds);
+        //agora, criamos uma lista do tipo Product e utilizamos o método criado do repository (jpql)
+        //visto que ele recebe como parâmetro uma lista de Long
+        List<Product> entity = repository.searchProductWithCategories(productIds);
+
+		//gerando uma nova lista de entidades ordenada, se baseando na ordenação da lista paginada
+		//para quaisquer dúvidas, abra o método replace abaixo e leia o código
+		entity = (List<Product>) Utils.replace(page.getContent(), entity);
+
+
 		//reconvertendo a lista do tipo Produto para uma do tipo DTO
 		List<ProductDTO> dtos = entity.stream().map(x -> new ProductDTO(x, x.getCategories())).toList();
 
