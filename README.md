@@ -327,3 +327,214 @@ Método alterado:
 Service alterado (um simples casting):
 
 ![img_17.png](img_17.png)
+
+## Incluir Postgres no perfil dev
+
+Como a consulta acima foi bem complexa, é importante que a gente valide essa consulta, para ver se ela também funciona
+em um banco de dados real (nuvem), como o Postgres.
+
+Colocar Maven do Postgres.
+
+Arquivo application-dev.properties:
+
+```properties
+#spring.jpa.properties.jakarta.persistence.schema-generation.create-source=metadata
+#spring.jpa.properties.jakarta.persistence.schema-generation.scripts.action=create
+#spring.jpa.properties.jakarta.persistence.schema-generation.scripts.create-target=create.sql
+#spring.jpa.properties.hibernate.hbm2ddl.delimiter=;
+
+spring.datasource.url=jdbc:postgresql://localhost:5433/dscatalog
+spring.datasource.username=postgres
+spring.datasource.password=1234567
+
+spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
+spring.jpa.properties.hibernate.jdbc.lob.non_contextual_creation=true
+spring.jpa.hibernate.ddl-auto=none
+```
+
+## Executando o Postgres e pgAdmin com Docker Compose
+
+Executar Postgresql e pgAdmin (ou DBeaver)
+Opção 1: instalar diretamente o Postgresql e o pgAdmin ou DBeaver no seu sistema
+
+Opção 2: subir Postgresql e pgAdmin via Docker Compose:
+https://gist.github.com/acenelio/5e40b27cfc40151e36beec1e27c4ff71
+
+## Criando script SQL da base de dados e testando consulta
+
+Criar uma database denominada "dscatalog", igual no app-dev ali em cima.
+
+Tirar os comentários daquelas 4 primeiras linhas, rodar a aplicação para criar o Script de criação das tabelas.
+
+No postgres, joga o script lá.
+
+## Dica drop table em todas tabelas
+
+Dica: gerar comandos SQL para excluir tabelas
+
+```postgresql
+SELECT 'drop table if exists ' || tablename || ' cascade;'
+FROM pg_tables
+WHERE schemaname = 'public';
+```
+
+Ao rodar esse código no pgAdmin, ele nos retorna os drop tables de TODAS as tabelas e você pode selecionar a que
+preferir:
+
+![img_18.png](img_18.png)
+
+## Caso de uso - signup
+
+Cadastro de usuário no sistema.
+
+### Cenário principal:
+1. [IN] O usuário informa primeiro nome, sobrenome, e-mail e senha
+
+### Exceção 1.1: Erro de validação
+2. [OUT] O sistema informa os erros de validação
+
+### Informações complementares
+
+Critérios de validação de usuário
+- Nome: campo requerido
+- E-mail: e-mail válido
+- Senha: mínimo 8 caracteres
+
+Primeira coisa é retirar o @PreAuthorize de Admin para que qualquer pessoa possa se registrar.
+
+Na requisição Postman, retirar a lista de roles que é passada, afinal ele vai ser gerada automaticamente pelo backend.
+
+No UserInsertDTO, passar @NotBlank, @Size na password.
+
+No service, precisamos settar a role no insert, mas antes disso, depois de usar o copy, dar clear, veja:
+
+```java
+	@Transactional
+	public UserDTO insert(UserInsertDTO dto) {
+		User entity = new User();
+		copyDtoToEntity(dto, entity);
+
+		//clear
+		entity.getRoles().clear();
+		//settando role manualmente, usando repository
+		Role role = roleRepository.findByAuthority("ROLE_OPERATOR");
+		entity.getRoles().add(role);
+
+		entity.setPassword(passwordEncoder.encode(dto.getPassword()));
+
+		entity = repository.save(entity);
+
+		return new UserDTO(entity);
+	}
+```
+
+Fazer a requisição no Postman:
+
+![img_19.png](img_19.png)
+
+## Configurando senha de app do Gmail (iniciando recuperação de senha)
+
+A ideia é enviar e-mail para o usuário, para fazermos isso, precisamos de um provedor, usaremos o SMTP do gmail.
+
+Envio de e-mail via Gmail
+1. Criar uma senha de app na sua conta do Google
+   Guia:
+   https://support.google.com/accounts/answer/185833
+
+Acessar a sua conta no Google ⇒ Segurança ⇒ Validação em duas etapas ⇒ Senhas de app
+https://myaccount.google.com/
+
+![img_20.png](img_20.png)
+
+Selecionar dispositivo ⇒ Outro ⇒ (escolha um nome que lembre o seu app) ⇒ Gerar
+
+![img_21.png](img_21.png)
+
+Pronto! Sua senha de app de 16 caracteres foi gerada. Salve-a em um lugar seguro.
+
+![img_22.png](img_22.png)
+
+2. Agora, vá [neste repositório](https://github.com/devsuperior/spring-boot-gmail), e copie as variáveis de ambiente do
+application.properties e insira no projeto.
+
+**❗ATENÇÃO**: nunca escreva as suas credenciais diretamente no application.properties. Configure os valores das variáveis no 
+ambiente de execução do projeto.
+
+O e-mail na variável de ambiente é o nosso pessoal mesmo (do gmail), a senha é a criada acima.
+
+3. Execute o projeto e teste a requisição de envio de e-mail
+
+POST http://localhost:8080/email
+
+Corpo da requisição:
+
+```json
+{
+    "to": "destinatario@gmail.com",
+    "subject": "Aviso aos clientes",
+    "body": "Prezado cliente,\n\nAcesse agora:\n\nhttps://devsuperior.com.br\n\nAbraços!"
+}
+```
+
+## Enviando e-mail com projeto referência
+
+Dá um clone no repositório acima, abrindo na IDE e settando as variáveis de ambiente novamente. NÃO AS PASSE NO 
+application.properties.
+
+Use a requisição postman acima.
+
+## Explicando a requisição feita
+
+Se você olhar na estrutura do projeto acima, temos:
+
+EmailController, com a função sendEmail, recebendo um EmailDTO (retorna noContent e void).
+
+EmailDTO, obviamente, possui a estrutura da requisição Postman acima com as anotações @Email, @NotBlank.
+
+No service, temos a função recebendo um EmailDTO fazendo um try-catch.
+
+O bacana do service é que ele pega o username do properties:
+
+![img_24.png](img_24.png)
+
+![img_23.png](img_23.png)
+
+Depois, injetamos o componente chamado JavaMailSender (da biblioteca spring mail). Esse JavaMailSender, pega as
+configurações do properties também: port, host, etc.
+
+```java
+@Service
+public class EmailService {
+	
+	@Value("${spring.mail.username}")
+	private String emailFrom;
+	
+    @Autowired
+    private JavaMailSender emailSender;
+
+    public void sendEmail(EmailDTO obj) {
+        try{
+            //esse simplemail é um objeto da lib do spring mail
+            SimpleMailMessage message = new SimpleMailMessage();
+            //agora é só settar o message
+            //remetente
+            message.setFrom(emailFrom);
+            //destinatário
+            message.setTo(obj.getTo());
+            //assunto
+            message.setSubject(obj.getSubject());
+            //corpo mensagem
+            message.setText(obj.getBody());
+            emailSender.send(message);
+        } 
+        //essa exception foi criada customizada no pacote do service
+        catch (MailException e){
+        	throw new EmailException("Failed to send email");
+        } 
+    }
+}
+```
+
+Destacando que tem que criar também o ExceptionHandler no pacote do Controller para tratar essa exceção acima.
+
+## Caso de uso recuperação de senha
