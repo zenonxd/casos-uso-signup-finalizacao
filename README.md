@@ -538,3 +538,146 @@ public class EmailService {
 Destacando que tem que criar também o ExceptionHandler no pacote do Controller para tratar essa exceção acima.
 
 ## Caso de uso recuperação de senha
+
+Cenário principal:
+1. [IN] O usuário informa o seu email
+2. [OUT] O sistema informa o token de recuperação e a validade do mesmo
+3. [IN] O usuário informa o token de recuperação e a nova senha
+
+Exceção 1.1: Email inválido
+1.1.1. [OUT] O sistema informa que o email é inválido
+<hr>
+
+Exceção 1.2: Email não encontrado
+1.2.1. [OUT] O sistema informa que o email não foi encontrado
+<hr>
+
+Exceção 3.1: Token inválido
+3.1.1. [OUT] O sistema informa que o token é inválido
+<hr>
+
+Exceção 3.2: Erro de validação
+3.1.2. [OUT] O sistema informa que a senha é inválida
+<hr>
+
+Primeira coisa, criar uma requisição POST, usaremos a URL "/auth/recover-token". Ou seja, teremos que criar um Controller
+"AuthController".
+
+No corpo da requisição, só teremos o email.
+
+![img_25.png](img_25.png)
+
+Para que o email da requisição funcione, o email utilizado na requisição deve ser inserido no banco de dados 
+(import.sql), com role operator.
+
+### AuthController (validando email)
+
+Essa requisição retornará Void, no corpo da requisição passaremos um EmailDTO denominado "body" que possuirá somente
+String email com as anotações. 
+
+Criaremos um AuthService, com o método "createRecoverToken", passando o email.
+
+A função do controller retornará um ``noContent().build``.
+
+### AuthService (lógica envio email)
+
+Bom, vamos pensar na lógica deste método.
+
+1. Como está acima, precisamos verificar se o email existe. Se não encontrar, já retornar um 404.
+2. Gerar um token com uma validade de X minutos e salvar no banco de dados (para o backend verificar se o token ainda é
+valido).
+3. Enviar o email para o usuário com um link para usar o token.
+
+⬆️ Tudo isso é só para o primeiro passo do caso de uso: **1. [IN] O usuário informa o seu email**
+
+### PASSO 1 
+
+Para verificar se o usuário existe, precisamos instanciar um usuário e injetar o UserRepository (findByEmail), lembra?
+
+Se o user for nulo, lançar ResourceNotFoundException.
+
+### PASSO 2
+
+A partir do momento que precisamos salvar algo no banco, precisamos criar uma entidade. Vamos criar uma classe chamada
+"PasswordRecover", fazer as suas anotações para virar uma table.
+
+Ela terá ID e um token do tipo String, um String email e o tempo de expiração do tipo Instant. ⬅️ Todos esses campos são
+**obrigatórios**.
+
+Colocar getters and setters + hashcode&equals com a ID.
+
+Voltamos no service para continuar a lógica! Criaremos um objeto do tipo PasswordRecover. A partir disso, settaremos
+os seus atributos.
+
+O email, será o que veio do DTO. 
+
+O token criaremos um do tipo ``UUID.randomUUID().toString``.
+
+A expiração será Instant.now().plus(tempo que queremos). Esse tempo, virá das variáveis que estarão no application.properties
+⬇️.
+
+#### Variáveis para recuperação de senha
+
+```properties
+email.password-recover.token.minutes=${PASSWORD_RECOVER_TOKEN_MINUTES:30}
+email.password-recover.uri=${PASSWORD_RECOVER_URI:http://localhost:5173/recover-password/}
+```
+
+Essa URI é o endereço que chegará no email do usuário, o endereço do frontend fica no lugar do localhost.
+
+Para ler a variável do token.minutes, só injetar ela no service com @Value:
+
+```java
+@Value("${email.password-recover.token.minutes}")
+private Long tokenMinutes;
+```
+
+Inserir isso dentro do ".plus()" ⬆️ (se não tiver minutos, multiplicar por 60L).
+
+Para salvarmos no banco de dados, criar um repository para o PasswordRecover.
+
+### PASSO 3
+
+Para fazermos o envio do email, iremos utilizar o EmailService (injetaremos ele no AuthService).
+
+Usaremos o método ``.sendEmail(to, subject, body)``. O to, é para o DTO, subject será "recuperação de senha" e o body,
+faremos o seguinte:
+
+Podemos criar uma String text com o corpo da mensagem a ser passada ``"Acesse o link para definir uma nova senha\n\n" +
+link + token + ". Validade de " + tokenMinutes + " minutos";``, inserindo depois no parâmetro acima ⬆️.
+
+Qual link? O recover.uri ali de cima do properties. Só injetar exatamente como o token! E para ficar mais fácil, podemos
+criar uma variável para o token também.
+
+E para que a gente entenda: essa tela de "nova senha", o frontend conhece esse token gerado (UUID).
+
+![img_26.png](img_26.png)
+
+Informações complementares
+-
+
+Critérios de validação de senha: Mínimo 8 caracteres
+
+Consulta para encontrar o token não expirado
+-
+```java
+@Query("SELECT obj FROM PasswordRecover obj WHERE obj.token = :token AND obj.expiration > :now")
+List<PasswordRecover> searchValidTokens(String token, Instant now);
+```
+
+Obter usuário logado
+-
+
+```java
+protected User authenticated() {
+  try {
+    Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+    Jwt jwtPrincipal = (Jwt) authentication.getPrincipal();
+    String username = jwtPrincipal.getClaim("username");
+    return userRepository.findByEmail(username);
+  }
+  catch (Exception e) {
+    throw new UsernameNotFoundException("Invalid user");
+  }
+}
+```
