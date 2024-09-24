@@ -653,20 +653,63 @@ E para que a gente entenda: essa tela de "nova senha", o frontend conhece esse t
 
 ![img_26.png](img_26.png)
 
-Informações complementares
--
+### PASSO 4 - EmailException
 
-Critérios de validação de senha: Mínimo 8 caracteres
+Fazer o tratamento no ControllerExceptionHandler. 
 
-Consulta para encontrar o token não expirado
--
+Vai retornar um bad request.
+
+## Salvando uma nova senha caso o token seja válido
+
+O usuário vai entrar na tela de nova senha e digitar ela e o backend vai conferir se o token ainda é valido.
+
+### Consulta para encontrar o token não expirado
+
+Utilizaremos ela no PasswordRecoverRepository.
+
 ```java
 @Query("SELECT obj FROM PasswordRecover obj WHERE obj.token = :token AND obj.expiration > :now")
 List<PasswordRecover> searchValidTokens(String token, Instant now);
 ```
 
-Obter usuário logado
--
+<hr>
+
+No AuthController, criaremos um PUT (afinal, iremos inserir uma nova senha). 
+
+1. A URL será "/new-password"
+2. Retornará Void
+3. O método criado (para o service) será "saveNewPassword"
+3. @Valid e @RequestBody, passando um NewPasswordDTO (terá somente um String token e String password com critério de
+validação), veja:
+
+#### Critérios de validação de senha: 
+
+Mínimo 8 caracteres e @NotBlank.
+<hr>
+
+No service, criar o método com Transactional e fazer a lógica, primeiro verificando se o token está expirado.
+
+Se a lista que retornará do repository for igual a zero, lançaremos a exceção ResourceNotFoundException.
+
+Se o token for válido, salvaremos a senha no banco.
+
+O que vem de resultado nessa lista (advinda do PasswordRecover), ela possui como atributo o email do usuário, então
+faremos o seguinte:
+
+1. Instanciaremos um usuário, e no ``result.get(0)`` (o primeiro token que chegou), podemos acessar o atributo com
+``.getEmail()``
+2. Alocaremos isso em um findByEmail do userRepository
+3. Pegaremos o usuário e daremos um ``setPassword``, atualizando a sua senha. Como a senha é tem a criptografia,
+injetaremos o BCrypt (PasswordEncoder) lá em cima
+4. Após isso, usar o ``save``.
+
+Para testar, só passar o NewPasswordDTO na URL "/auth/new-password" com o token + password. O token é o recoverToken
+(UUID) que chegará no email.
+
+
+### Obter usuário logado
+
+#### AuthService
 
 ```java
 protected User authenticated() {
@@ -681,3 +724,22 @@ protected User authenticated() {
   }
 }
 ```
+
+#### UserService
+
+![img_27.png](img_27.png)
+
+
+#### UserController
+
+![img_28.png](img_28.png)
+
+#### Postman
+
+Tem que ter bearerToken.
+
+``GET {{host}}/users/me``
+
+## Desafio Movieflix
+
+
