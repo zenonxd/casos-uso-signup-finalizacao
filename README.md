@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/static/v1?label=SpringExpert - Dev Superior&message=Testes Automatizados&color=8257E5&labelColor=000000" alt="Testes automatizados na prática com Spring Boot" />
+  <img src="https://img.shields.io/static/v1?label=SpringExpert - Dev Superior&message=Casos de Uso, Signup e finalizacão&color=8257E5&labelColor=000000" alt="casos-uso-signup-finalizacao" />
 </p>
 
 # Competências
